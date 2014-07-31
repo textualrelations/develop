@@ -12,6 +12,7 @@ import os
 import pdb
 from binascii import b2a_hex
 import math
+import logging
 
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument, PDFNoOutlines
@@ -21,7 +22,12 @@ from pdfminer.converter import PDFPageAggregator
 from pdfminer.layout import LAParams, LTTextBox, LTTextLine, LTFigure, LTImage, LTChar, LTLine, LTRect, LTCurve
 
 class ARNPDFScanner:
-		
+	
+	# Constructor. Set debugging level here!
+	def __init__(self):
+		# Logging level examples: DEBUG, WARNING
+		logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
+	
 	###
 	### pdf-miner requirements
 	###
@@ -49,7 +55,7 @@ class ARNPDFScanner:
 			fp.close()
 		except IOError:
 			# the file doesn't exist or similar problem
-			pass
+			raise
 		return result
 	
 	
@@ -139,6 +145,51 @@ class ARNPDFScanner:
 	# Returns the tuple (pageno, key, value) as a human readable string
 	def tuple2str(self, t):
 		return str(t)
+
+	def _match_text(self, (choice_center_x, choice_center_y), (selector_center_x, selector_center_y), txtlines):
+		choice_text_box_id = None
+		# Find the choice's text. Iterate over the text lines, starting from the bottom of the page
+		choice_text = group_text = None
+		for line in txtlines:
+			
+			# Choice text
+			if abs(choice_center_x - line[0]) < 30 and abs(choice_center_y - line[1]) < 8:        
+
+				# Found a matching text.
+				choice_text = line[2]
+				choice_text_box_id = line[3]
+				logging.info("MATCH SELECTOR: Choice " + self._pt2str(choice_center_x, choice_center_y, choice_center_x, choice_center_y) + " Selector " + self._pt2str(selector_center_x, selector_center_y, choice_center_x, choice_center_y) + " Text " + self._pt2str(line[0], line[1], choice_center_x, choice_center_y))
+				logging.debug("With SELECTOR TEXT " + line[2] + " id " + str(line[3]))
+				break
+			else:
+				logging.debug("NOMATCH SELECTOR: Choice " + self._pt2str(choice_center_x, choice_center_y, choice_center_x, choice_center_y) + " Selector " + self._pt2str(selector_center_x, selector_center_y, choice_center_x, choice_center_y) + " Text " + self._pt2str(line[0], line[1], choice_center_x, choice_center_y))
+				logging.debug("With SELECTOR TEXT " + line[2] + " id " + str(line[3]))
+
+		if choice_text is None:
+			raise Exception("No choice text found")
+
+		# Find the choice's header (group text). Iterate over the text lines, starting from the bottom of the page
+		for line in txtlines:
+			
+			#print "Choice center y " + str(choice_center_y) + " text y " + str(k[1])
+			#textmiddle = text.y0 + text.height / 2
+			#if abs(choice_center_x - textmiddle) < 5:
+			
+			# Group text
+			if choice_text_box_id is not line[3] and line[0] < choice_center_x and choice_center_y + 5 < line[1]:
+				logging.info("MATCH GROUP: Choice " + self._pt2str(choice_center_x, choice_center_y, choice_center_x, choice_center_y) + " Selector " + self._pt2str(selector_center_x, selector_center_y, choice_center_x, choice_center_y) + " Text " + self._pt2str(line[0], line[1], choice_center_x, choice_center_y))
+				logging.debug("With GROUP TEXT " + line[2])
+				group_text = line[2]
+				break
+			else:
+			 	logging.debug("NOMATCH GROUP: Choice " + self._pt2str(choice_center_x, choice_center_y, choice_center_x, choice_center_y) + " Selector " + self._pt2str(selector_center_x, selector_center_y, choice_center_x, choice_center_y) + " Text " + self._pt2str(line[0], line[1], choice_center_x, choice_center_y))
+			 	logging.debug("With GROUP TEXT " + line[2])
+	
+		if group_text is None:
+				raise Exception("No group text found for " + choice_text)
+	
+		return (group_text, choice_text)
+	
 	
 	# Returns a list of tuples with the following format:
 	# (selected box och button as a dict object, selection such as radio button or pressed dito as a dict object, associated line of text)
@@ -146,11 +197,12 @@ class ARNPDFScanner:
 		retlst = []
 		choices.sort(key=lambda x:x.y0, reverse=True)
 		txtlines.sort(key=lambda x: x[1])
+
 		for choice in choices:
 			# Calculate center of choice
 			choice_center_x = choice.x0 + choice.width / 2
 			choice_center_y = choice.y0 + choice.height / 2
-			
+
 			choice_text = group_text = None
 			for selector in selectors:
 				if choice_text and group_text: break
@@ -161,52 +213,11 @@ class ARNPDFScanner:
 	
 				if math.hypot(selector_center_x - choice_center_x, selector_center_y - choice_center_y) < 5:
 					# The choice has found its selector. Find the matching text.
-	
-					choice_text_box_id = None
-					# Find the choice's text. Iterate over the text lines, starting from the bottom of the page
-					for line in txtlines:
-	
-						# Choice text
-						if choice_text is None and abs(choice_center_x - line[0]) < 30 and abs(choice_center_y - line[1]) < 5:
-	
-							# Found a matching text.
-							choice_text = line[2]
-							choice_text_box_id = line[3]
-							#print "MATCH: Choice " + _pt2str(choice_center_x, choice_center_y, choice_center_x, choice_center_y) + " Selector " + _pt2str(selector_center_x, selector_center_y, choice_center_x, choice_center_y) + " Text " + _pt2str(line[0], line[1], choice_center_x, choice_center_y)
-							# print "With TEXT " + line[2]
-	#					else:
-	#						print "NOMATCH: Choice " + _pt2str(choice_center_x, choice_center_y, choice_center_x, choice_center_y) + " Selector " + _pt2str(selector_center_x, selector_center_y, choice_center_x, choice_center_y) + " Text " + _pt2str(coord[0], coord[1], choice_center_x, choice_center_y)
-	#						print "With TEXT " + v
-	
-						if choice_text is not None:
-							break;
-					
-					
-					# Find the choice's header (group text). Iterate over the text lines, starting from the bottom of the page
-					for line in txtlines:
-	
-	#					print "Choice center y " + str(choice_center_y) + " text y " + str(k[1])
-						#textmiddle = text.y0 + text.height / 2
-	#					if abs(choice_center_x - textmiddle) < 5:
-	
-						# Group text
-						if choice_text_box_id is not line[3] and line[0] < choice_center_x and choice_center_y + 5 < line[1]:
-							# print "MATCHGROUP: Choice " + _pt2str(choice_center_x, choice_center_y, choice_center_x, choice_center_y) + " Selector " + _pt2str(selector_center_x, selector_center_y, choice_center_x, choice_center_y) + " Text " + _pt2str(line[0], line[1], choice_center_x, choice_center_y)
-							# print "	With GROUPTEXT " + line[2]						
-							group_text = line[2]
-	#					else:
-						 	# print "#NOMATCHGROUP: Choice " + _pt2str(choice_center_x, choice_center_y, choice_center_x, choice_center_y) + " Selector " + _pt2str(selector_center_x, selector_center_y, choice_center_x, choice_center_y) + " Text " + _pt2str(line[0], line[1], choice_center_x, choice_center_y)
-						 	# print "	With GROUPTEXT " + line[2]						
-	
-						if group_text is not None:
-							break;
-	
-					break # Process next choice
+					(group_text, choice_text) = self._match_text((choice_center_x, choice_center_y), (selector_center_x, selector_center_y), txtlines)
+					logging.info("Page #" + str(pageno) + ": " + group_text + "=" + choice_text)
+					retlst.append((pageno, group_text, choice_text))
+					break # Continue with next choice
 			
-			if group_text is None or choice_text is None:
-				raise Exception("Didn't find matching selector or text for a choice")
-			# print group_text + "=" + choice_text
-			retlst.append((pageno, group_text, choice_text))
 			
 		return retlst
 					
@@ -262,11 +273,11 @@ class ARNPDFScanner:
 	# pdf_pwd: PDF password, if any
 	#
 	def scan(self, pdf_doc, pdf_pwd=''):
-	    """Process each of the pages in this pdf file and return a list of strings representing the text found in each page"""
-	    return self._with_pdf(pdf_doc, self._parse_pages, pdf_pwd)
+		"""Process each of the pages in this pdf file and return a list of strings representing the text found in each page"""
+		logging.info("Scanning " + pdf_doc)
+		return self._with_pdf(pdf_doc, self._parse_pages, pdf_pwd)
 
 if __name__ == '__main__':
-	print "Scanning " + sys.argv[1]
 	s = ARNPDFScanner()
 	result = s.scan(sys.argv[1])
 	for t in result:
