@@ -70,9 +70,8 @@ class ARNPDFScanner:
 		pressedbtns = []
 		txtlines = []
 	
-	#	page_text = {} # k=(x0, x1) of the bbox, v=list of text strings within that bbox width (physical column)
 		for lt_obj in lt_objs:
-	#		print str(type(lt_obj)) + " at (x0, y0) (" + str(lt_obj.x0) + ", " + str(lt_obj.y0) + ")"
+			logging.debug(str(type(lt_obj)) + " at (x0, y0) (" + str(lt_obj.x0) + ", " + str(lt_obj.y0) + ")")
 			
 			if isinstance(lt_obj, LTTextBox) or isinstance(lt_obj, LTTextLine):
 				# text, so arrange is logically based on its column width
@@ -82,13 +81,8 @@ class ARNPDFScanner:
 				y = lt_obj.y0 + lt_obj.height
 				for i, line in enumerate(lines):
 					# Coordinate of the text line
-	
-	#				print "lt_obj index " + str(lt_obj.index)
 					txtlines.append((lt_obj.x0, y - (i + 0.5) * (lt_obj.height / len(lines)), line, lt_obj.index))
-		#			pdb.set_trace()
-	#			print "txtlines is now " + str(txtlines)
 			elif isinstance(lt_obj, LTCurve):
-	#			print " with " + str(len(lt_obj.pts)) + " points and with dim " + str(lt_obj.width) + " x " + str(lt_obj.height)
 	
 				if int(lt_obj.width) == int(lt_obj.height):
 					if len(lt_obj.pts) == 5:
@@ -96,42 +90,16 @@ class ARNPDFScanner:
 						chkboxes.append(lt_obj)
 					elif len(lt_obj.pts) == 2:
 						# Checkmark
-	#					print "Checkmark " + str(lt_obj.pts)
 						if (lt_obj.pts[0][1] < lt_obj.pts[1][1]):
 							chkmarks.append(lt_obj)
 	                
 					elif len(lt_obj.pts) == 13 and int(lt_obj.width) == 7:
 						radiobtns.append(lt_obj)
-	#					print "radiobtn"
 					elif len(lt_obj.pts) == 13 and int(lt_obj.width) == 3:
 						pressedbtns.append(lt_obj)
-	#					print "radiobtn pressed"
-						
-	#		elif isinstance(lt_obj, LTFigure):
-	#			print "Entering LTFigure"
-	#			(chkboxes, chkmarks, radiobtns, pressedbtns, txtlines) = parse_lt_objs(lt_obj, chkboxes, chkmarks, radiobtns, pressedbtns, txtlines)
-			
-				
-	#			page_text = update_page_text_hash(page_text, lt_obj)
-				#print "New text " + page_text[len(cpy):len(page_text)]
-			# elif isinstance(lt_obj, LTImage):
-			#         # an image, so save it to the designated folder, and note its place in the text 
-			#     	saved_file = save_image(lt_obj, page_number, images_folder)
-			#     	if saved_file:
-			#             # use html style <img /> tag to mark the position of the image within the text
-			#             text_content.append('<img src="'+os.path.join(images_folder, saved_file)+'" />')
-			#         else:
-			#             print >> sys.stderr, "error saving image on page", page_number, lt_obj.__repr__
-	#		elif isinstance(lt_obj, LTFigure):
-	#			# LTFigure objects are containers for other LT* objects, so recurse through the children
-			
-		# for k, v in sorted([(key,value) for (key,value) in	 page_text.items()]):
-		# 	# sort the page_text hash by the keys (x0,x1 values of the bbox),
-		# 	# which produces a top-down, left-to-right sequence of related columns
-		# 	text_content.append(''.join(v))
-	
-		return (chkboxes, chkmarks, radiobtns, pressedbtns, txtlines) #'\n'.join(text_content)
-	
+							
+		return (chkboxes, chkmarks, radiobtns, pressedbtns, txtlines)
+		
 	def _rect2str(self, lt_rect):
 		return "(x, y) = (" + str(lt_rect.x0) + ", " + str(lt_rect.y0) + ") width " + str(lt_rect.width) + " height " + str(lt_rect.height)
 	
@@ -170,10 +138,6 @@ class ARNPDFScanner:
 
 		# Find the choice's header (group text). Iterate over the text lines, starting from the bottom of the page
 		for line in txtlines:
-			
-			#print "Choice center y " + str(choice_center_y) + " text y " + str(k[1])
-			#textmiddle = text.y0 + text.height / 2
-			#if abs(choice_center_x - textmiddle) < 5:
 			
 			# Group text
 			if choice_text_box_id is not line[3] and line[0] < choice_center_x and choice_center_y + 5 < line[1]:
@@ -218,9 +182,7 @@ class ARNPDFScanner:
 					retlst.append((pageno, group_text, choice_text))
 					break # Continue with next choice
 			
-			
 		return retlst
-					
 	
 	def _parse_pages (self, doc):
 		"""With an open PDFDocument object, get the pages and parse each one
@@ -233,32 +195,16 @@ class ARNPDFScanner:
 		result = []
 		for i, page in enumerate(PDFPage.create_pages(doc)):
 			pageno = i + 1
-			#print "PAGE #" + str(pageno)
+
 			interpreter.process_page(page)
 			# receive the LTPage object for this page
 			layout = device.get_result()
-			# layout is an LTPage object which may contain child objects like LTTextBox, LTFigure, LTImage, etc.
-			#chkboxes = chkmarks = radiobtns = pressedbtns = txtlines = []
 			(chkboxes, chkmarks, radiobtns, pressedbtns, txtlines) = self._parse_lt_objs(layout)
-	#		text_content.append(_parse_lt_objs(layout, (i + 1), images_folder, lt_rects, chkboxes, chkmarks, radiobtns, pressedbtns, txtlines))
-	#		pdb.set_trace()
-		
+
 			# Match radiobtns and pressedbtns
-	#		print "SCAN DONE"
 			matches = self._match_objs(chkboxes + radiobtns, chkmarks + pressedbtns, txtlines, pageno)
 			result = result + matches
 		
-	#	print "FOUND FOLLOWING RECTS AT PAGE #" + str(i + 1) + ":"
-	#	for rect in lt_rects:
-	#		print "Rectangle (" + str(rect.width) + ", " + str(rect.height) + ")"
-		
-	#	for rect1 in lt_rects:
-	#		for rect2 in lt_rects:
-	#			pdb.set_trace()
-	#			if rect1 != rect2 and int(rect1.x0) == int(rect2.x0) and int(rect1.y0) == int(rect2.y0):
-	#				print "Rectangles match:"
-	#				print "#1: " + _rect2str(rect1) + "\n#2: " + _rect2str(rect2)
-	
 		return result
 	
 	#
